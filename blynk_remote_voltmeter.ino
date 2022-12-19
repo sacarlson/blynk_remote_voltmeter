@@ -46,7 +46,7 @@
 
 // also we selected the ESP8266 NodeMCU 1.0 (ESP-12E Module) for this project
 // it is also setup to allow OTA Over The Air updates
-// you need to setup a blynk server like I did for this project as blynk no longer supports legacy version.
+// you need to setup a blynk server like I did for this project as blynk no longer supports legacy version of Blynk.
 
 #define BLYNK_PRINT Serial
 
@@ -67,21 +67,11 @@
 
 // You should get Auth Token in the Blynk App.
 // Go to the Project Settings (nut icon).
-char auth[] = "......................x5AJ";
+char auth[] = "........5AJ";
 
-// Your WiFi credentials for Blynk.
-// Set password to "" for open networks.
-char ssid[] = "wifinet";
-char pass[] = "password";
+char* ssid[] = {"wifinet1","wifinet2","wifinet3"}; //list of wifi networks
+char* pass[] = {"password_net1","password_net2","password_net3"}; //list of passwords
 
-// your WiFi credentials for OTA, I had them set to the same network as blynk but maybe for security you want a different one for OTA.
-#ifndef STASSID
-#define STASSID "wifinet"
-#define STAPSK  "password"
-#endif
-
-const char* ssidota = STASSID;
-const char* password = STAPSK;
 BlynkTimer timer;
 WidgetLED led1(V10);  // might later use to indicate voltage triger low state active
 WidgetLED led2(V11);  // might later use to indicate voltage trigger high state active
@@ -100,7 +90,7 @@ void myTimerEvent(){
   Blynk.virtualWrite(V0, volt);       
   calib_volt = volt_to_calib_volt(volt);
   Blynk.virtualWrite(V1, calib_volt); 
- 
+  Serial.println("timer event.. ");
   if (ledstate == 0){
     led1.off();
   }else{
@@ -177,23 +167,13 @@ void setup()
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT); // pin2 also = D4 aka LED_BUILTIN  that is built in led on esp8266
   pinMode(A0, INPUT);
- 
- // Blynk.begin(auth, ssid, pass);
- // you must setup your own blynk server as blynk no longer supports legacy any more
- // this is just an example of how I setup link to my server that requires site and port used
-  Blynk.begin(auth, ssid, pass, "www.funtracker.site", 8080);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssidota, password);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("Connection Failed! Rebooting...");
-    delay(5000);
-    //ESP.restart();
-  }
+
+  MultyWiFiBlynkBegin(); //instead Blynk.begin(auth, ssid, pass);  
 
   Blynk.virtualWrite(V3,calfactor);
  
   ArduinoOTA.setHostname("blynk_voltmeter");
-  ArduinoOTA.setPassword("password");
+  ArduinoOTA.setPassword("password_OTA");
   ArduinoOTA.onStart([]() {
     String type;
     if (ArduinoOTA.getCommand() == U_FLASH) {
@@ -232,9 +212,45 @@ void setup()
   timer.setInterval(1000L, myTimerEvent);
 }
 
+void MultyWiFiBlynkBegin() {
+  int ssid_count=0;
+  int ssid_mas_size = sizeof(ssid) / sizeof(ssid[0]);
+  do {
+    Serial.println("Trying to connect to wi-fi " + String(ssid[ssid_count]));
+    WiFi.begin(ssid[ssid_count], pass[ssid_count]);    
+    int WiFi_timeout_count=0;
+    while (WiFi.status() != WL_CONNECTED && WiFi_timeout_count<50) { //waiting 10 sec
+      delay(200);
+      Serial.print(".");
+      ++WiFi_timeout_count;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Connected to WiFi! Now I will check the connection to the Blynk server");
+      Blynk.config(auth,"www.funtracker.site", 8080);
+      //Blynk.begin(auth, ssid, pass, "www.funtracker.site", 8080);
+      Blynk.connect(10000); //waiting 10 sec
+    }
+    ++ssid_count; 
+  }
+  while (!Blynk.connected() && ssid_count<ssid_mas_size);
+    if (!Blynk.connected() && ssid_count==ssid_mas_size) {
+    Serial.println("I could not connect to blynk =( Ignore and move on. but still I will try to connect to wi-fi " + String(ssid[ssid_count-1]));
+  }
+}
+
+
+
+void reset_wifi_notconnect(){
+  if (WiFi.status() != WL_CONNECTED){
+    Serial.println("detected wifi desconnect will reset esp");
+    ESP.restart();
+  }
+}
+
 void loop()
 {
   Blynk.run();
   timer.run(); // Initiates BlynkTimer
+  reset_wifi_notconnect();
   ArduinoOTA.handle();
 }
